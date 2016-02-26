@@ -1106,6 +1106,7 @@ enum ath10k_tx_pause_reason {
 
 struct ath10k_fw_file {
 	const struct firmware *firmware;
+	char fw_name[100];
 
 	char fw_version[ETHTOOL_FWVERS_LEN];
 

@@ -6703,7 +6703,7 @@ struct wmi_peer_assoc_complete_arg {
 
 	/* CT firmware only (beta-15 and higher ) */
 	bool has_rate_overrides;
-	u8 rate_overrides[20];
+	u8 rate_overrides[RATE_OVERRIDES_COUNT];
 };
 
 struct wmi_peer_add_wds_entry_cmd {

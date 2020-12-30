@@ -456,6 +456,13 @@ static void iwl_init_vht_hw_capab(struct iwl_trans *trans,
 	unsigned int max_ampdu_exponent = (cfg->max_vht_ampdu_exponent ?:
 					   IEEE80211_VHT_MAX_AMPDU_1024K);
 
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	if (trans->dbg_cfg.ampdu_exponent_p1) {
+		max_ampdu_exponent = min((unsigned int)(trans->dbg_cfg.ampdu_exponent_p1 - 1),
+					 max_ampdu_exponent);
+	}
+#endif
+
 	vht_cap->vht_supported = true;
 
 	vht_cap->cap = IEEE80211_VHT_CAP_SHORT_GI_80 |
@@ -530,13 +537,17 @@ static void iwl_init_vht_hw_capab(struct iwl_trans *trans,
 			cpu_to_le16(IEEE80211_VHT_MCS_NOT_SUPPORTED << 2);
 	}
 
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	vht_cap->cap ^= trans->dbg_cfg.vht_cap_flip;
+#endif
+
 	vht_cap->vht_mcs.tx_mcs_map = vht_cap->vht_mcs.rx_mcs_map;
 
 	vht_cap->vht_mcs.tx_highest |=
 		cpu_to_le16(IEEE80211_VHT_EXT_NSS_BW_CAPABLE);
 }
 
-static const struct ieee80211_sband_iftype_data iwl_he_capa[] = {
+static const struct ieee80211_sband_iftype_data iwl_he_capa_const[] = {
 	{
 		.types_mask = BIT(NL80211_IFTYPE_STATION),
 		.he_cap = {
@@ -699,6 +710,9 @@ static const struct ieee80211_sband_iftype_data iwl_he_capa[] = {
 	},
 };
 
+static struct ieee80211_sband_iftype_data iwl_he_capa_cur[2];
+
+
 static void iwl_init_he_6ghz_capa(struct iwl_trans *trans,
 				  struct iwl_nvm_data *data,
 				  struct ieee80211_supported_band *sband,
@@ -756,8 +770,8 @@ static void iwl_init_he_hw_capab(struct iwl_trans *trans,
 	if (WARN_ON(sband->iftype_data))
 		return;
 
-	BUILD_BUG_ON(sizeof(data->iftd.low) != sizeof(iwl_he_capa));
-	BUILD_BUG_ON(sizeof(data->iftd.high) != sizeof(iwl_he_capa));
+	BUILD_BUG_ON(sizeof(data->iftd.low) != sizeof(iwl_he_capa_const));
+	BUILD_BUG_ON(sizeof(data->iftd.high) != sizeof(iwl_he_capa_const));
 
 	switch (sband->band) {
 	case NL80211_BAND_2GHZ:
@@ -772,10 +786,10 @@ static void iwl_init_he_hw_capab(struct iwl_trans *trans,
 		return;
 	}
 
-	memcpy(iftype_data, iwl_he_capa, sizeof(iwl_he_capa));
+	memcpy(iftype_data, iwl_he_capa_const, sizeof(iwl_he_capa_const));
 
 	sband->iftype_data = iftype_data;
-	sband->n_iftype_data = ARRAY_SIZE(iwl_he_capa);
+	sband->n_iftype_data = ARRAY_SIZE(iwl_he_capa_const);
 
 	/* If not 2x2, we need to indicate 1x1 in the Midamble RX Max NSTS */
 	if ((tx_chains & rx_chains) != ANT_AB) {
@@ -788,10 +802,162 @@ static void iwl_init_he_hw_capab(struct iwl_trans *trans,
 				~IEEE80211_HE_PHY_CAP2_MIDAMBLE_RX_TX_MAX_NSTS;
 			iftype_data[i].he_cap.he_cap_elem.phy_cap_info[7] &=
 				~IEEE80211_HE_PHY_CAP7_MAX_NC_MASK;
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+
+			if (trans->dbg_cfg.ampdu_exponent_p1) {
+				/* Use whatever is set in the VHT element. */
+				iftype_data[i].he_cap.he_cap_elem.mac_cap_info[3] &= ~IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_MASK;
+				iftype_data[i].he_cap.he_cap_elem.mac_cap_info[3] |= IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_USE_VHT;
+			}
+#endif
 		}
+	}
+}
+
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+/* returns true iff there exists one spatial stream where MCS of a > b */
+static bool iwl_he_mcs_greater(u16 a, u16 b)
+{
+	int i;
+
+	for (i = 0; i < 16; i += 2) {
+		if ((((a >> i) + 1) & 3) > (((b >> i) + 1) & 3))
+			return true;
+	}
+	return false;
+}
+
+static void iwl_init_he_override(struct iwl_trans *trans,
+				 struct iwl_nvm_data *data,
+				 struct ieee80211_supported_band *sband,
+				 u8 tx_chains, u8 rx_chains)
+{
+	struct ieee80211_sband_iftype_data *iftype_data;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(iwl_he_capa_cur); i++) {
+		iftype_data = &iwl_he_capa_cur[i];
+
+		if (trans->dbg_cfg.rx_mcs_80) {
+			if (iwl_he_mcs_greater(trans->dbg_cfg.rx_mcs_80,
+					       le16_to_cpu(iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_80)))
+				IWL_ERR(trans,
+					"Cannot set dbg rx_mcs_80 = 0x%x (too big)\n",
+					trans->dbg_cfg.rx_mcs_80);
+			else
+				iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_80 =
+					cpu_to_le16(trans->dbg_cfg.rx_mcs_80);
+		}
+		if (trans->dbg_cfg.tx_mcs_80) {
+			if (iwl_he_mcs_greater(trans->dbg_cfg.tx_mcs_80,
+					       le16_to_cpu(iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_80)))
+				IWL_ERR(trans,
+					"Cannot set dbg tx_mcs_80 = 0x%x (too big)\n",
+					trans->dbg_cfg.tx_mcs_80);
+			else
+				iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_80 =
+					cpu_to_le16(trans->dbg_cfg.tx_mcs_80);
+		}
+		if (trans->dbg_cfg.rx_mcs_160) {
+			if (iwl_he_mcs_greater(trans->dbg_cfg.rx_mcs_160,
+					       le16_to_cpu(iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_160)))
+				IWL_ERR(trans,
+					"Cannot set dbg rx_mcs_160 = 0x%x (too big)\n",
+					trans->dbg_cfg.rx_mcs_160);
+			else
+				iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_160 =
+					cpu_to_le16(trans->dbg_cfg.rx_mcs_160);
+		}
+		if (trans->dbg_cfg.tx_mcs_160) {
+			if (iwl_he_mcs_greater(trans->dbg_cfg.tx_mcs_160,
+					       le16_to_cpu(iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_160)))
+				IWL_ERR(trans,
+					"Cannot set dbg tx_mcs_160 = 0x%x (too big)\n",
+					trans->dbg_cfg.tx_mcs_160);
+			else
+				iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_160 =
+					cpu_to_le16(trans->dbg_cfg.tx_mcs_160);
+		}
+
+		/*
+		 * If antennas were forced - make sure not declaring MIMO when
+		 * we actually are SISO
+		 * Recall that there are 2 bits per stream in the "HE Tx/Rx HE
+		 * MCS NSS Support Field", so if some antenna is forced on but
+		 * not both A and B - we should work in SISO mode, so mark the
+		 * 2nd SS as not supported
+		 */
+		if (trans->dbg_cfg.valid_ants &&
+		    (trans->dbg_cfg.valid_ants & ANT_AB) != ANT_AB) {
+			iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_80 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+			iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_80 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+			iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_160 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+			iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_160 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+			iftype_data->he_cap.he_mcs_nss_supp.rx_mcs_80p80 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+			iftype_data->he_cap.he_mcs_nss_supp.tx_mcs_80p80 |=
+				cpu_to_le16(IEEE80211_HE_MCS_NOT_SUPPORTED << 2);
+		}
+
+		if (trans->dbg_cfg.no_ldpc)
+			iftype_data->he_cap.he_cap_elem.phy_cap_info[1] &=
+				~IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD;
+
+		/* Check if any HE capabilities need to be set for debug */
+		if (trans->dbg_cfg.he_ppe_thres.len) {
+			u8 len = trans->dbg_cfg.he_ppe_thres.len;
+
+			if (len > sizeof(iftype_data->he_cap.ppe_thres))
+				len = sizeof(iftype_data->he_cap.ppe_thres);
+			memcpy(iftype_data->he_cap.ppe_thres,
+			       trans->dbg_cfg.he_ppe_thres.data, len);
+		}
+
+		if (trans->dbg_cfg.he_chan_width_dis)
+			iftype_data->he_cap.he_cap_elem.phy_cap_info[0] &=
+					~(trans->dbg_cfg.he_chan_width_dis << 1);
+
+		if (trans->dbg_cfg.he_mac_cap.len) {
+			if (trans->dbg_cfg.he_mac_cap.len !=
+			    sizeof(iftype_data->he_cap.he_cap_elem.mac_cap_info)) {
+				IWL_ERR(trans,
+					"Wrong he_mac_cap len %u, should be %zu\n",
+					trans->dbg_cfg.he_mac_cap.len,
+					sizeof(iftype_data->he_cap.he_cap_elem.mac_cap_info));
+			} else {
+				memcpy(iftype_data->he_cap.he_cap_elem.mac_cap_info,
+				       trans->dbg_cfg.he_mac_cap.data,
+				       trans->dbg_cfg.he_mac_cap.len);
+			}
+		}
+		if (trans->dbg_cfg.he_phy_cap.len) {
+			if (trans->dbg_cfg.he_phy_cap.len !=
+			    sizeof(iftype_data->he_cap.he_cap_elem.phy_cap_info)) {
+				IWL_ERR(trans,
+					"Wrong he_phy_cap len %u, should be %zu\n",
+					trans->dbg_cfg.he_phy_cap.len,
+					sizeof(iftype_data->he_cap.he_cap_elem.phy_cap_info));
+			} else {
+				memcpy(iftype_data->he_cap.he_cap_elem.phy_cap_info,
+				       trans->dbg_cfg.he_phy_cap.data,
+				       trans->dbg_cfg.he_phy_cap.len);
+			}
+		}
+
+		if (iftype_data->types_mask == BIT(NL80211_IFTYPE_STATION) &&
+		    trans->trans_cfg->device_family >= IWL_DEVICE_FAMILY_AX210)
+			iftype_data->he_cap.he_cap_elem.phy_cap_info[2] |=
+				IEEE80211_HE_PHY_CAP2_UL_MU_FULL_MU_MIMO |
+				IEEE80211_HE_PHY_CAP2_UL_MU_PARTIAL_MU_MIMO;
+
 	}
 	iwl_init_he_6ghz_capa(trans, data, sband, tx_chains, rx_chains);
 }
+#endif
 
 static void iwl_init_sbands(struct iwl_trans *trans,
 			    struct iwl_nvm_data *data,
@@ -1001,6 +1167,19 @@ static int iwl_set_hw_address(struct iwl_trans *trans,
 			      struct iwl_nvm_data *data, const __be16 *nvm_hw,
 			      const __le16 *mac_override)
 {
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	struct iwl_dbg_cfg *dbg_cfg = &trans->dbg_cfg;
+
+	if (dbg_cfg->hw_address.len) {
+		if (dbg_cfg->hw_address.len == ETH_ALEN &&
+		    is_valid_ether_addr(dbg_cfg->hw_address.data)) {
+			memcpy(data->hw_addr, dbg_cfg->hw_address.data,
+			       ETH_ALEN);
+			return 0;
+		}
+		IWL_ERR(trans, "mac address from config file is invalid\n");
+	}
+#endif
 	if (cfg->mac_addr_from_csr) {
 		iwl_set_hw_address_from_csr(trans, data);
 	} else if (cfg->nvm_type != IWL_NVM_EXT) {
@@ -1100,6 +1279,16 @@ iwl_parse_nvm_data(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 		rx_chains &= data->valid_rx_ant;
 
 	sku = iwl_get_sku(cfg, nvm_sw, phy_sku);
+
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	if (trans->dbg_cfg.disable_52GHz)
+		/* remove support for 5.2 */
+		sku &= ~NVM_SKU_CAP_BAND_52GHZ;
+	if (trans->dbg_cfg.disable_24GHz)
+		/* remove support for 2.4 */
+		sku &= ~NVM_SKU_CAP_BAND_24GHZ;
+#endif
+
 	data->sku_cap_band_24ghz_enable = sku & NVM_SKU_CAP_BAND_24GHZ;
 	data->sku_cap_band_52ghz_enable = sku & NVM_SKU_CAP_BAND_52GHZ;
 	data->sku_cap_11n_enable = sku & NVM_SKU_CAP_11N_ENABLE;
@@ -1146,6 +1335,10 @@ iwl_parse_nvm_data(struct iwl_trans *trans, const struct iwl_cfg *cfg,
 		return NULL;
 	}
 
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	iwl_init_he_override(trans, data, &data->bands[NL80211_BAND_2GHZ], tx_chains, rx_chains);
+	iwl_init_he_override(trans, data, &data->bands[NL80211_BAND_5GHZ], tx_chains, rx_chains);
+#endif
 	if (lar_enabled &&
 	    fw_has_capa(&fw->ucode_capa, IWL_UCODE_TLV_CAPA_LAR_SUPPORT))
 		sbands_flags |= IWL_NVM_SBANDS_FLAGS_LAR;
@@ -1611,6 +1804,18 @@ struct iwl_nvm_data *iwl_get_nvm(struct iwl_trans *trans,
 	iwl_set_hw_address_from_csr(trans, nvm);
 	/* TODO: if platform NVM has MAC address - override it here */
 
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	if (trans->dbg_cfg.hw_address.len) {
+		if (trans->dbg_cfg.hw_address.len == ETH_ALEN &&
+		    is_valid_ether_addr(trans->dbg_cfg.hw_address.data))
+			memcpy(nvm->hw_addr,
+			       trans->dbg_cfg.hw_address.data, ETH_ALEN);
+		else
+			IWL_ERR(trans,
+				"mac address from config file is invalid\n");
+	}
+#endif
+
 	if (!is_valid_ether_addr(nvm->hw_addr)) {
 		IWL_ERR(trans, "no valid mac address was found\n");
 		ret = -EINVAL;
@@ -1653,6 +1858,10 @@ struct iwl_nvm_data *iwl_get_nvm(struct iwl_trans *trans,
 		sbands_flags |= IWL_NVM_SBANDS_FLAGS_LAR;
 	}
 
+#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+	iwl_init_he_override(trans, nvm, &nvm->bands[NL80211_BAND_2GHZ], nvm->valid_tx_ant, nvm->valid_rx_ant);
+	iwl_init_he_override(trans, nvm, &nvm->bands[NL80211_BAND_5GHZ], nvm->valid_tx_ant, nvm->valid_rx_ant);
+#endif
 	rsp_v3 = (void *)rsp;
 	channel_profile = v4 ? (void *)rsp->regulatory.channel_profile :
 			  (void *)rsp_v3->regulatory.channel_profile;

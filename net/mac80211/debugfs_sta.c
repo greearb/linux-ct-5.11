@@ -558,11 +558,20 @@ static ssize_t sta_vht_capa_read(struct file *file, char __user *userbuf,
 	case NL80211_CHAN_WIDTH_10:
 		p += scnprintf(p, sizeof(buf) + buf - p, "10Mhz\n");
 		break;
-	case NL80211_CHAN_WIDTH_5_NOHT:
-		p += scnprintf(p, sizeof(buf) + buf - p, "5Mhz-NOHT\n");
+	case NL80211_CHAN_WIDTH_1:
+		p += scnprintf(p, sizeof(buf) + buf - p, "1Mhz\n");
 		break;
-	case NL80211_CHAN_WIDTH_10_NOHT:
-		p += scnprintf(p, sizeof(buf) + buf - p, "10Mhz-NOHT\n");
+	case NL80211_CHAN_WIDTH_2:
+		p += scnprintf(p, sizeof(buf) + buf - p, "2Mhz\n");
+		break;
+	case NL80211_CHAN_WIDTH_4:
+		p += scnprintf(p, sizeof(buf) + buf - p, "4Mhz\n");
+		break;
+	case NL80211_CHAN_WIDTH_8:
+		p += scnprintf(p, sizeof(buf) + buf - p, "8Mhz\n");
+		break;
+	case NL80211_CHAN_WIDTH_16:
+		p += scnprintf(p, sizeof(buf) + buf - p, "16Mhz\n");
 		break;
 	}
 

@@ -165,9 +165,9 @@ static int iwl_request_firmware(struct iwl_drv *drv, bool first)
 {
 	const struct iwl_cfg *cfg = drv->trans->cfg;
 	char tag[8];
-#if defined(CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES)
-	char fw_name_temp[64];
-#endif
+//#if defined(CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES)
+//	char fw_name_temp[64];
+//#endif
 
 	if (drv->trans->trans_cfg->device_family == IWL_DEVICE_FAMILY_9000 &&
 	    (CSR_HW_REV_STEP(drv->trans->hw_rev) != SILICON_B_STEP &&
@@ -207,14 +207,15 @@ static int iwl_request_firmware(struct iwl_drv *drv, bool first)
 	snprintf(drv->firmware_name, sizeof(drv->firmware_name), "%s%s.ucode",
 		 cfg->fw_name_pre, tag);
 
-#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
-	if (drv->trans->dbg_cfg.fw_file_pre) {
-		snprintf(fw_name_temp, sizeof(fw_name_temp), "%s%s",
-			 drv->trans->dbg_cfg.fw_file_pre, drv->firmware_name);
-		strncpy(drv->firmware_name, fw_name_temp,
-			sizeof(drv->firmware_name));
-	}
-#endif /* CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES */
+// The snprintf below is often failing, not sure why, but disable this code since it is not used by me. --Ben
+//#ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+//	if (drv->trans->dbg_cfg.fw_file_pre) {
+//		snprintf(fw_name_temp, sizeof(fw_name_temp), "%s%s",
+//			 drv->trans->dbg_cfg.fw_file_pre, drv->firmware_name);
+//		strncpy(drv->firmware_name, fw_name_temp,
+//			sizeof(drv->firmware_name));
+//	}
+//#endif /* CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES */
 
 	IWL_DEBUG_FW_INFO(drv, "attempting to load firmware '%s'\n",
 			  drv->firmware_name);

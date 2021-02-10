@@ -453,8 +453,6 @@ static void iwl_init_vht_hw_capab(struct iwl_trans *trans,
 	const struct iwl_cfg *cfg = trans->cfg;
 	int num_rx_ants = num_of_ant(rx_chains);
 	int num_tx_ants = num_of_ant(tx_chains);
-	unsigned int max_ampdu_exponent = (cfg->max_vht_ampdu_exponent ?:
-					   IEEE80211_VHT_MAX_AMPDU_1024K);
 
 #ifdef CONFIG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
 	if (trans->dbg_cfg.ampdu_exponent_p1) {
@@ -469,7 +467,7 @@ static void iwl_init_vht_hw_capab(struct iwl_trans *trans,
 		       IEEE80211_VHT_CAP_RXSTBC_1 |
 		       IEEE80211_VHT_CAP_SU_BEAMFORMEE_CAPABLE |
 		       3 << IEEE80211_VHT_CAP_BEAMFORMEE_STS_SHIFT |
-		       max_ampdu_exponent <<
+		       IEEE80211_VHT_MAX_AMPDU_1024K <<
 		       IEEE80211_VHT_CAP_MAX_A_MPDU_LENGTH_EXPONENT_SHIFT;
 
 	if (data->vht160_supported)

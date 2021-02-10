@@ -91,4 +91,7 @@ void iwl_reinit_capab(struct iwl_trans *trans,
 		      struct iwl_nvm_data *data,
 		      u8 tx_chains, u8 rx_chains);
 
+struct iwl_nvm_data *iwl_get_nvm(struct iwl_trans *trans,
+				 const struct iwl_fw *fw);
+
 #endif /* __iwl_nvm_parse_h__ */

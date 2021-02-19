@@ -2090,6 +2090,16 @@ bool ieee80211_parse_tx_radiotap(struct sk_buff *skb,
 	u8 vht_mcs = 0, vht_nss = 0;
 	int i;
 
+	/* ath10k 5Ghz only radios, at least, won't have a 0 band.  Detect this
+	 * and try different band if that is the case.
+	 */
+	if (!sband) {
+		if (info->band == 0)
+			sband = local->hw.wiphy->bands[1];
+		else
+			sband = local->hw.wiphy->bands[0];
+	}
+
 	/* check for not even having the fixed radiotap header part */
 	if (unlikely(skb->len < sizeof(struct ieee80211_radiotap_header))) {
 		pr_info("parse-tx-radiotap:  len too small: %d < %d\n",
@@ -2253,7 +2263,7 @@ bool ieee80211_parse_tx_radiotap(struct sk_buff *skb,
 		} else if (rate_flags & IEEE80211_TX_RC_VHT_MCS) {
 			ieee80211_rate_set_vht(info->control.rates, vht_mcs,
 					       vht_nss);
-		} else {
+		} else if (sband) {
 			for (i = 0; i < sband->n_bitrates; i++) {
 				if (rate * 5 != sband->bitrates[i].bitrate)
 					continue;
@@ -2261,6 +2271,9 @@ bool ieee80211_parse_tx_radiotap(struct sk_buff *skb,
 				info->control.rates[0].idx = i;
 				break;
 			}
+		}
+		else {
+			info->control.rates[0].idx = 0;
 		}
 
 		if (info->control.rates[0].idx < 0)

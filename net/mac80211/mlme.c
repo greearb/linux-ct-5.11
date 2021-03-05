@@ -703,7 +703,7 @@ static void ieee80211_add_he_ie(struct ieee80211_sub_if_data *sdata,
 		ieee80211_he_ppe_size(he_cap->ppe_thres[0],
 				      he_cap->he_cap_elem.phy_cap_info);
 	pos = skb_put(skb, he_cap_size);
-	ieee80211_ie_build_he_cap(pos, he_cap, pos + he_cap_size);
+	ieee80211_ie_build_he_cap(sdata, pos, he_cap, pos + he_cap_size);
 
 	ieee80211_ie_build_he_6ghz_cap(sdata, skb);
 }
@@ -917,6 +917,16 @@ skip_rates:
 	    !(ifmgd->flags & IEEE80211_STA_DISABLE_HE) && assoc_data->ie_len &&
 	    ext_capa && ext_capa->datalen >= 3)
 		ext_capa->data[2] |= WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT;
+
+	/* Apply overrides as needed. */
+	if (ifmgd->flags & IEEE80211_STA_DISABLE_TWT) {
+		if (ext_capa) {
+			if (ext_capa && ext_capa->datalen > 10) {
+				ext_capa->data[9] &= ~(WLAN_EXT_CAPA10_TWT_RESPONDER_SUPPORT);
+				ext_capa->data[9] &= ~(WLAN_EXT_CAPA10_TWT_REQUESTER_SUPPORT);
+			}
+		}
+	}
 
 	/* if present, add any custom IEs that go before HT */
 	if (assoc_data->ie_len) {
@@ -3306,13 +3316,19 @@ static void ieee80211_get_rates(struct ieee80211_supported_band *sband,
 	}
 }
 
-static bool ieee80211_twt_req_supported(const struct sta_info *sta,
+static bool ieee80211_twt_req_supported(struct ieee80211_sub_if_data *sdata,
+					const struct sta_info *sta,
 					const struct ieee802_11_elems *elems)
 {
+	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
+
 	if (elems->ext_capab_len < 10)
 		return false;
 
 	if (!(elems->ext_capab[9] & WLAN_EXT_CAPA10_TWT_RESPONDER_SUPPORT))
+		return false;
+
+	if (ifmgd->flags & IEEE80211_STA_DISABLE_TWT)
 		return false;
 
 	return sta->sta.he_cap.he_cap_elem.mac_cap_info[0] &
@@ -3323,7 +3339,7 @@ static int ieee80211_recalc_twt_req(struct ieee80211_sub_if_data *sdata,
 				    struct sta_info *sta,
 				    struct ieee802_11_elems *elems)
 {
-	bool twt = ieee80211_twt_req_supported(sta, elems);
+	bool twt = ieee80211_twt_req_supported(sdata, sta, elems);
 
 	if (sdata->vif.bss_conf.twt_requester != twt) {
 		sdata->vif.bss_conf.twt_requester = twt;
@@ -5798,6 +5814,9 @@ int ieee80211_mgd_assoc(struct ieee80211_sub_if_data *sdata,
 
 	if (req->flags & ASSOC_REQ_DISABLE_HE)
 		ifmgd->flags |= IEEE80211_STA_DISABLE_HE;
+
+	if (req->flags & ASSOC_REQ_DISABLE_TWT)
+		ifmgd->flags |= IEEE80211_STA_DISABLE_TWT;
 
 	err = ieee80211_prep_connection(sdata, req->bss, true, override);
 	if (err)

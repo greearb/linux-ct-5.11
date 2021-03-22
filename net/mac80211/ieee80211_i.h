@@ -244,6 +244,11 @@ struct ieee80211_rx_data {
 
 	u32 tkip_iv32;
 	u16 tkip_iv16;
+
+#ifdef CONFIG_MAC80211_DEBUG_STA_COUNTERS
+	/* for stats gathering */
+	struct ieee80211_radiotap_he radiotap_he;
+#endif
 };
 
 struct ieee80211_csa_settings {
